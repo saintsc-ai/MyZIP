@@ -1,0 +1,7 @@
+# MyZIP 실행에 필요한 것
+
+PySide6>=6.7.0          # GUI
+pyzipper>=0.3.6         # ZIP AES-256 암호 (표준 zipfile 호환 API)
+
+# 빌드용 (실행에는 불필요)
+# pyinstaller>=6.0       # python build.py 가 없으면 자동 설치합니다

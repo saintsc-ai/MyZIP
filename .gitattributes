@@ -1,0 +1,20 @@
+# 줄바꿈 정규화 — 저장소에는 LF 로 보관한다.
+* text=auto eol=lf
+
+# Windows 도구가 CRLF 를 기대하는 것들
+*.iss  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# 바이너리 (diff 하지 않는다)
+*.ico  binary
+*.png  binary
+*.jpg  binary
+*.exe  binary
+*.dll  binary
+*.zip  binary
+*.rar  binary
+*.7z   binary
+
+# GitHub 언어 통계에서 제외
+docs/images/*  linguist-documentation

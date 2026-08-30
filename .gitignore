@@ -1,0 +1,30 @@
+# 빌드 산출물
+/dist/
+/build/
+/release/
+/installer/output/
+*.spec
+
+# RAR/7Z 해제 엔진 — 저장소에 넣지 않는다.
+# 7-Zip 바이너리(약 2.4MB)이고, tools/fetch_7zip.py 로 언제든 다시 받을 수 있다.
+/bin/
+
+# 파이썬
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 편집기 / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.DS_Store
+
+# 로그
+*.log
