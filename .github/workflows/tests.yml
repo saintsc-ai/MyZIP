@@ -73,6 +73,29 @@ jobs:
       - name: 빌드
         run: python build.py
 
+      # --register 가 러너에서 멈추는 원인을 좁히기 위한 진단.
+      # windowed 로 빌드한 exe 는 처리되지 않은 예외가 나면 모달 대화상자를
+      # 띄우고 아무도 누르지 않아 영원히 기다린다. 창이 떠 있는지 확인한다.
+      - name: register 진단
+        continue-on-error: true
+        run: |
+          $p = Start-Process -FilePath dist\MyZIP\MyZIP.exe -ArgumentList '--register' `
+                 -PassThru -RedirectStandardOutput reg-out.txt -RedirectStandardError reg-err.txt
+          if (-not $p.WaitForExit(30000)) {
+            Write-Host "== 30초 안에 끝나지 않음 =="
+            Write-Host "-- 창을 가진 프로세스 --"
+            Get-Process | Where-Object { $_.MainWindowTitle } |
+              Select-Object Name, MainWindowTitle | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "-- MyZIP 프로세스 --"
+            Get-Process MyZIP -ErrorAction SilentlyContinue |
+              Select-Object Id, Threads.Count | Format-Table | Out-String | Write-Host
+            $p.Kill()
+          } else {
+            Write-Host "정상 종료. exit=$($p.ExitCode)"
+          }
+          Write-Host "-- stdout --"; Get-Content reg-out.txt -ErrorAction SilentlyContinue | Write-Host
+          Write-Host "-- stderr --"; Get-Content reg-err.txt -ErrorAction SilentlyContinue | Write-Host
+
       - name: 빌드된 exe 검증
         env:
           MYZIP_NO_SHELL: "1"
