@@ -7,6 +7,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  # 러너의 콘솔 기본 인코딩이 cp1252 라서, 한글을 출력하면
+  # UnicodeEncodeError 로 스크립트가 죽는다. UTF-8 로 고정한다.
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+
 jobs:
   test:
     # MyZIP 은 Windows 셸 통합이 핵심이라 Windows 에서만 의미가 있다.
