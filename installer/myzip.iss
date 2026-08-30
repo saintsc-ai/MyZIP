@@ -8,7 +8,7 @@
 ; 설치가 끝나는 편이 사용자에게 낫기 때문이다.
 
 #define AppName        "MyZIP"
-#define AppVersion     "1.0.0"
+#define AppVersion     "1.0.1"
 #define AppPublisher   "MyZIP"
 #define AppExeName     "MyZIP.exe"
 #define SourceDir      "..\dist\MyZIP"
