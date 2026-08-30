@@ -32,6 +32,49 @@ IPC_NAME = "MyZIP.SingleInstance.v1"
 COLLECT_DELAY = 500
 
 
+def make_output_safe() -> None:
+    """콘솔 인코딩 때문에 프로그램이 죽지 않게 한다.
+
+    한글 메시지를 찍을 때 stdout 이 UTF-8 이 아니면 UnicodeEncodeError 가
+    난다. 한국어 Windows 콘솔(CP949)에서는 멀쩡하지만, 출력이 파이프나
+    파일로 넘어가거나 다른 언어의 Windows 에서 돌리면 CP1252 가 잡혀
+    한글을 인코딩하지 못한다.
+
+    게다가 이 프로그램은 콘솔 없는(windowed) 실행 파일로 배포된다.
+    그런 빌드에서 처리되지 않은 예외가 나면 PyInstaller 가 모달 오류창을
+    띄우는데, 아무도 누르지 않으므로 프로세스가 영원히 멈춘다.
+    """
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        try:
+            # 콘솔에 직접 찍을 때는 콘솔의 인코딩을 그대로 둔다.
+            # UTF-8 로 바꿔 버리면 CP949 콘솔에서 오히려 한글이 깨진다.
+            # 파이프나 파일로 넘어가는 경우에만 UTF-8 로 맞춘다.
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass  # 재설정할 수 없는 스트림이면 say() 가 알아서 막아 준다
+
+
+def say(message: str) -> None:
+    """콘솔 메시지 출력. 콘솔이 없거나 인코딩이 달라도 죽지 않는다.
+
+    windowed 빌드에서는 sys.stdout 이 아예 None 일 수 있다.
+    """
+    stream = getattr(sys, "stdout", None)
+    if stream is None:
+        return
+    try:
+        stream.write(message + "\n")
+        stream.flush()
+    except (UnicodeEncodeError, OSError, ValueError):
+        pass  # 알림 메시지일 뿐이다. 못 찍는다고 작업을 실패시킬 이유가 없다
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="myzip",
@@ -83,21 +126,23 @@ def run_headless(args: argparse.Namespace) -> int:
 
     if args.register:
         registry.install_all()
-        print(f"{APP_NAME}: 확장자 연결과 탐색기 메뉴를 등록했습니다.")
+        say(f"{APP_NAME}: 확장자 연결과 탐색기 메뉴를 등록했습니다.")
         return 0
     if args.register_menu:
         registry.register_application()
         registry.install_context_menu()
-        print(f"{APP_NAME}: 탐색기 메뉴를 등록했습니다.")
+        say(f"{APP_NAME}: 탐색기 메뉴를 등록했습니다.")
         return 0
     if args.unregister:
         registry.uninstall_all()
-        print(f"{APP_NAME}: 확장자 연결과 탐색기 메뉴를 제거했습니다.")
+        say(f"{APP_NAME}: 확장자 연결과 탐색기 메뉴를 제거했습니다.")
         return 0
     return -1  # 해당 없음
 
 
 def main(argv: list[str] | None = None) -> int:
+    make_output_safe()
+
     argv = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(argv)
 

@@ -134,6 +134,36 @@ def test_roundtrip_content(archive: Path) -> None:
     check("해제 결과가 원본과 동일", ok)
 
 
+def test_legacy_console_encoding() -> None:
+    """한글을 못 담는 콘솔 인코딩에서도 죽지 않아야 한다.
+
+    성공 메시지를 찍다가 UnicodeEncodeError 로 죽은 적이 있다.
+    콘솔 없는 배포본에서는 그 예외가 모달 오류창으로 떠서 프로세스가
+    영원히 멈춘다 — 컨텍스트 메뉴가 먹통이 된다는 뜻이다.
+    """
+    import os
+
+    for encoding in ("cp1252", "ascii"):
+        env = dict(os.environ, PYTHONIOENCODING=encoding, MYZIP_NO_SHELL="1")
+        proc = subprocess.run(
+            [PYTHON, str(APP), "--register"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=90, cwd=str(ROOT), env=env,
+        )
+        check(f"{encoding} 콘솔에서 --register 정상 종료",
+              proc.returncode == 0,
+              f"rc={proc.returncode} err={proc.stderr[:300]!r}")
+
+        proc = subprocess.run(
+            [PYTHON, str(APP), "--help"],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60, cwd=str(ROOT), env=env,
+        )
+        check(f"{encoding} 콘솔에서 --help 정상 종료",
+              proc.returncode == 0,
+              f"rc={proc.returncode} err={proc.stderr[:300]!r}")
+
+
 def test_registry_roundtrip() -> None:
     """--register / --unregister 가 실제로 키를 만들고 지우는지."""
     from myzip.shell import registry
@@ -168,6 +198,7 @@ def main() -> int:
     if tgz_archive:
         test_extract_here(tgz_archive)
 
+    test_legacy_console_encoding()
     test_registry_roundtrip()
 
     print()
