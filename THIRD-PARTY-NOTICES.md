@@ -1,7 +1,8 @@
 # 제3자 구성요소 고지
 
 MyZIP 의 소스 코드는 MIT 라이선스입니다([LICENSE](LICENSE)).
-배포판(`setup.exe`, `portable.zip`)에는 아래 구성요소가 함께 들어갑니다.
+그 라이선스는 소스 코드에만 적용되며, 배포판(`setup.exe`, `portable.zip`)에
+함께 들어가는 아래 구성요소는 각자의 라이선스를 따릅니다.
 
 ## PySide6 / Qt 6
 
