@@ -135,13 +135,22 @@ def _key_exists(root: int, path: str) -> bool:
 
 
 def notify_shell() -> None:
-    """탐색기에 연결 정보가 바뀌었다고 알린다. 재부팅 없이 반영된다."""
+    """탐색기에 연결 정보가 바뀌었다고 알린다. 재부팅 없이 반영된다.
+
+    SHCNF_FLUSHNOWAIT 없이 부르면 알림이 처리될 때까지 기다린다.
+    탐색기가 떠 있는 보통의 데스크톱에서는 금방 돌아오지만, 셸이 없거나
+    응답하지 않는 환경(서비스 세션, CI 러너)에서는 몇 분씩 멈춘다.
+    우리는 결과를 기다릴 이유가 없으므로 알리기만 하고 즉시 돌아온다.
+    """
     try:
         import ctypes
 
         SHCNE_ASSOCCHANGED = 0x08000000
         SHCNF_IDLIST = 0x0000
-        ctypes.windll.shell32.SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None)
+        SHCNF_FLUSHNOWAIT = 0x2000
+        ctypes.windll.shell32.SHChangeNotify(
+            SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSHNOWAIT, None, None
+        )
     except Exception:
         pass  # 알림 실패는 치명적이지 않다 (로그아웃하면 반영된다)
 
