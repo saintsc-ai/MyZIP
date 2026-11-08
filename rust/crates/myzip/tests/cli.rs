@@ -74,6 +74,41 @@ impl Sandbox {
     }
 }
 
+/// 다른 압축 프로그램을 지운 뒤 남은 '기본 앱' 선택(UserChoice)은 연결할 때 치운다.
+/// 살아 있는 프로그램을 가리키는 선택은 그대로 둔다.
+#[test]
+fn register_clears_userchoice_of_removed_program() {
+    let sb = Sandbox::new();
+    let file_exts = r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts";
+    let choose = |ext: &str, progid: &str| {
+        let (k, _) = sb
+            .reg()
+            .create_subkey(format!(r"{}\{file_exts}\{ext}\UserChoice", sb.reg_root))
+            .unwrap();
+        k.set_value("ProgId", &progid).unwrap();
+    };
+    // .zip: 이미 제거된 프로그램. .rar: 아직 설치된 프로그램.
+    choose(".zip", "GoneArchiver.zip");
+    choose(".rar", "LiveArchiver.rar");
+    sb.reg()
+        .create_subkey(format!(
+            r"{}\Software\Classes\LiveArchiver.rar",
+            sb.reg_root
+        ))
+        .unwrap();
+
+    assert!(sb.run(&["--register"]).status.success());
+    assert_eq!(
+        sb.reg_get(&format!(r"{file_exts}\.zip\UserChoice"), "ProgId"),
+        None
+    );
+    assert_eq!(
+        sb.reg_get(&format!(r"{file_exts}\.rar\UserChoice"), "ProgId")
+            .as_deref(),
+        Some("LiveArchiver.rar")
+    );
+}
+
 impl Drop for Sandbox {
     fn drop(&mut self) {
         let _ = self.reg().delete_subkey_all(&self.reg_root);

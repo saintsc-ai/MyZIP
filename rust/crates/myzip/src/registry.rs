@@ -208,11 +208,42 @@ pub struct AssocStatus {
     pub current_owner: String,
 }
 
+fn userchoice_key(ext: &str) -> String {
+    format!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice")
+}
+
 fn userchoice_progid(ext: &str) -> Option<String> {
-    get(
-        &format!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice"),
-        "ProgId",
-    )
+    get(&userchoice_key(ext), "ProgId")
+}
+
+/// ProgID 가 HKCU 나 HKLM 의 Classes 에 정의되어 있는가.
+fn progid_exists(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    if key_exists(&format!(r"{CLASSES}\{id}")) {
+        return true;
+    }
+    winreg::RegKey::predef(winreg::enums::HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(format!(r"Software\Classes\{id}"), KEY_READ)
+        .is_ok()
+}
+
+/// '기본 앱' 선택(UserChoice)이 이미 지워진 프로그램을 가리키면 그 선택을 지운다.
+///
+/// 다른 압축 프로그램(예: KingZip)을 제거해도 UserChoice 는 남는 일이 많다.
+/// Windows 는 UserChoice 가 있으면 그것만 보므로, 가리키는 ProgID 가 없으면
+/// 그 확장자는 아무 프로그램에도 연결되지 않은 상태가 된다.
+/// UserChoice 는 해시로 보호되어 프로그램이 새로 쓸 수는 없지만 지울 수는 있다.
+/// 지우면 Classes 의 연결(MyZIP)이 쓰인다. 살아 있는 앱을 가리키는 선택은 건드리지 않는다.
+fn clear_orphan_userchoice(ext: &str) -> bool {
+    match userchoice_progid(ext) {
+        Some(choice) if !progid_exists(&choice) => {
+            delete_tree(&userchoice_key(ext));
+            !key_exists(&userchoice_key(ext))
+        }
+        _ => false,
+    }
 }
 
 /// ProgID(파일 종류 정의)를 만든다. 연결과는 별개다.
@@ -250,6 +281,7 @@ pub fn associate(ext: &str) -> io::Result<AssocStatus> {
     set(&ext_key, "", &id)?;
     // '연결 프로그램' 목록에 MyZIP 이 뜨도록
     set(&format!(r"{ext_key}\OpenWithProgids"), &id, "")?;
+    clear_orphan_userchoice(ext);
     Ok(status(ext))
 }
 
