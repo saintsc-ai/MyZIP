@@ -1,0 +1,22 @@
+[package]
+name = "myzip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MyZIP 명령줄과 탐색기 셸 통합"
+
+# 배포 exe 이름은 Python 판과 같게 둔다. 레지스트리의 Applications\MyZIP.exe
+# 키와 설치 경로를 그대로 이어받기 위해서다.
+[[bin]]
+name = "MyZIP"
+path = "src/main.rs"
+
+[dependencies]
+myzip-core = { path = "../myzip-core" }
+serde_json = "1.0.154"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Console", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_IO"] }
+winreg = "0.56.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
