@@ -1,6 +1,6 @@
 //! MyZIP 실행 파일.
 //!
-//!     MyZIP.exe <파일>                 아카이브 열기 (GUI 단계에서)
+//!     MyZIP.exe <파일>                 아카이브를 창으로 열기
 //!     MyZIP.exe --extract-here <파일>  같은 폴더에 바로 풀기
 //!     MyZIP.exe --extract-to <파일>    이름 폴더를 만들어 풀기
 //!     MyZIP.exe --test <파일>          무결성 검사
@@ -16,6 +16,7 @@
 mod cli;
 mod config;
 mod console;
+mod gui;
 mod instance;
 mod jobs;
 mod notify;
@@ -66,7 +67,19 @@ fn run() -> i32 {
             registry::uninstall_all,
         ),
         Command::List(request) => jobs::list(&request),
-        Command::Run(request) => instance::run(request),
+        Command::Run(request) => {
+            // 여러 파일을 골랐을 때 흩어진 프로세스를 하나로 모은다.
+            // '열기' 는 파일마다 창이 따로 뜨는 것이 자연스러우므로 모으지 않는다.
+            let requests = if request.mode == cli::Mode::Open {
+                vec![request]
+            } else {
+                match instance::gather(request) {
+                    Some(requests) => requests,
+                    None => return 0, // 이미 떠 있는 창에 넘겼다
+                }
+            };
+            gui::dispatch(requests)
+        }
     }
 }
 

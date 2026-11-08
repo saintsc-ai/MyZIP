@@ -13,7 +13,12 @@ name = "MyZIP"
 path = "src/main.rs"
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false }
+eframe = { version = "0.37.0", default-features = false, features = ["default_fonts", "glow", "accesskit"] }
+egui_extras = { version = "0.37.0", default-features = false }
+image = { version = "0.25.10", default-features = false, features = ["png"] }
 myzip-core = { path = "../myzip-core" }
+rfd = "0.18.0"
 serde_json = "1.0.154"
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Pipes", "Win32_System_Console", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_IO"] }
 winreg = "0.56.0"

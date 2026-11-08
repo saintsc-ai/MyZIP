@@ -390,14 +390,42 @@ fn list_prints_entries() {
     );
 }
 
+/// MYZIP_NO_SHELL 에서는 창을 띄우지 않는다. 창이 필요한 동작은 그렇다고 알리고 실패한다.
 #[test]
-fn window_modes_say_not_yet() {
+fn window_modes_do_not_open_windows_under_no_shell() {
     let sb = Sandbox::new();
-    let out = sb.run(&[]);
-    assert_eq!(out.status.code(), Some(1));
+    for args in [&[][..], &["--extract", "x.zip"], &["--compress", "x.txt"]] {
+        let out = sb.run(args);
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {}", text(&out));
+        assert!(
+            String::from_utf8_lossy(&out.stdout).contains("창"),
+            "{args:?}: {}",
+            text(&out)
+        );
+    }
+}
+
+/// 풀다가 실패하면 이번에 만든 빈 폴더를 남기지 않는다.
+#[test]
+fn failed_extract_leaves_no_empty_folder() {
+    let sb = Sandbox::new();
+    let src = make_tree(sb.path());
+    assert!(sb.run(&["--compress-zip", arg(&src)]).status.success());
+    let stage = sb.path().join("깨짐");
+    fs::create_dir_all(&stage).unwrap();
+    let archive = stage.join("자료.zip");
+    // 목록(중앙 디렉터리)은 멀쩡하고 내용만 망가진 ZIP.
+    let mut blob = fs::read(sb.path().join("자료.zip")).unwrap();
+    for b in &mut blob[40..400] {
+        *b ^= 0x5A;
+    }
+    fs::write(&archive, blob).unwrap();
+
+    let out = sb.run(&["--extract-to", arg(&archive)]);
+    assert_eq!(out.status.code(), Some(1), "{}", text(&out));
     assert!(
-        String::from_utf8_lossy(&out.stdout).contains("다음 단계"),
-        "{}",
+        !stage.join("자료").exists(),
+        "빈 폴더가 남음: {}",
         text(&out)
     );
 }

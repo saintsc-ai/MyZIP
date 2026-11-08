@@ -96,7 +96,6 @@ pub fn get_int(key: &str) -> i32 {
         .unwrap_or(0)
 }
 
-#[allow(dead_code)] // 설정 창(3단계 GUI)에서 쓴다
 pub fn set(key: &str, value: &str) -> std::io::Result<()> {
     let (group, name) = split(key);
     let (k, _) = regpath::hkcu().create_subkey(subkey(group))?;

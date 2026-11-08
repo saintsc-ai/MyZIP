@@ -19,6 +19,18 @@ fn handle_valid(kind: u32) -> bool {
     !handle.is_null() && handle != INVALID_HANDLE_VALUE
 }
 
+/// 출력이 파이프나 파일로 넘어가는지 (실행할 때 이미 정해져 있다).
+static REDIRECTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 출력을 파이프나 파일로 돌려 실행했는지. 스크립트와 테스트가 그렇게 부른다.
+/// 이때는 창을 띄우지 않고 결과를 글자로 돌려준다.
+///
+/// 터미널에서 그냥 실행한 것은 여기에 들지 않는다. 사람이 보고 있으니
+/// 진행률 창과 암호 입력 창을 띄우는 편이 낫다.
+pub fn is_redirected() -> bool {
+    REDIRECTED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// 표준 출력이 없으면 부모 프로세스의 콘솔에 붙는다.
 pub fn attach() {
     #[cfg(windows)]
@@ -26,7 +38,9 @@ pub fn attach() {
         use windows_sys::Win32::System::Console::{
             ATTACH_PARENT_PROCESS, AttachConsole, STD_OUTPUT_HANDLE,
         };
-        if !handle_valid(STD_OUTPUT_HANDLE) {
+        if handle_valid(STD_OUTPUT_HANDLE) {
+            REDIRECTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        } else {
             // SAFETY: 실패해도(부모에게 콘솔이 없으면) 아무 일도 일어나지 않는다.
             unsafe {
                 AttachConsole(ATTACH_PARENT_PROCESS);

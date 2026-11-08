@@ -5,8 +5,8 @@
 //!
 //! 그래서 먼저 뜬 프로세스가 named pipe 서버가 된다. 나중에 뜬 프로세스는
 //! 자기 요청을 서버에 넘기고 바로 끝난다. 서버는 요청이 잠잠해질 때까지
-//! (마지막 도착 후 0.5초) 기다렸다가 모은 것을 한 번에 처리한다. 처리하는
-//! 동안 들어온 요청은 그다음 차례에 처리한다.
+//! (마지막 도착 후 0.5초) 기다렸다가 접수를 마감하고, 모은 것을 창 하나에서
+//! 차례로 처리한다. 마감 뒤에 들어온 요청은 새 서버가 받아 자기 창에서 처리한다.
 //!
 //! 넘기는 데 실패하면(서버가 막 끝나는 중이었다든지) 스스로 처리한다.
 //! 요청이 사라지는 일은 없어야 한다.
@@ -33,7 +33,6 @@ use windows_sys::Win32::System::Pipes::{
 };
 
 use crate::cli::{Mode, Request};
-use crate::jobs;
 
 /// 파이프 이름을 바꾸는 환경 변수 (테스트가 서로 엉키지 않게).
 pub const ENV_NAME: &str = "MYZIP_IPC_NAME";
@@ -207,56 +206,52 @@ fn listen(server: Server, tx: Sender<Request>) {
     unsafe { CloseHandle(handle) };
 }
 
-fn serve(server: Server, name: &str, first: Request) -> i32 {
+/// 요청을 모은다. 잠잠해지면(마지막 도착 후 0.5초) 접수를 마감하고 모은 것을 돌려준다.
+///
+/// 마감한 뒤에 들어오는 요청은 새 프로세스가 서버가 되어 따로 처리한다.
+/// 그래야 '압축 풀기' 창과 '압축하기' 창처럼 서로 다른 일이 한 창에 섞이지 않는다.
+fn collect(server: Server, name: &str, first: Request) -> Vec<Request> {
     let (tx, rx) = mpsc::channel();
     let listener = thread::spawn(move || listen(server, tx));
 
-    let mut code = 0;
     let mut queue = vec![first];
-    loop {
-        // 잠잠해질 때까지 모은다.
-        while let Ok(request) = rx.recv_timeout(COLLECT_DELAY) {
-            queue.push(request);
-        }
-        if queue.is_empty() {
-            break;
-        }
-        code = code.max(jobs::execute(std::mem::take(&mut queue)));
+    while let Ok(request) = rx.recv_timeout(COLLECT_DELAY) {
+        queue.push(request);
     }
 
-    // 더 받지 않는다. 그 사이에 끼어든 요청이 있으면 마저 처리한다.
+    // 더 받지 않는다. 마감 직전에 끼어든 요청도 놓치지 않는다.
     // 정지 메시지를 못 보냈으면 리스너를 기다리지 않는다 (프로세스가 끝나면 함께 끝난다).
     if send(name, &stop_message()).is_ok() {
         let _ = listener.join();
     }
-    let rest: Vec<Request> = rx.try_iter().collect();
-    if !rest.is_empty() {
-        code = code.max(jobs::execute(rest));
-    }
-    code
+    queue.extend(rx.try_iter());
+    queue
 }
 
-/// 요청을 처리한다. 다른 인스턴스가 떠 있으면 그쪽에 넘긴다.
-pub fn run(request: Request) -> i32 {
+/// 흩어진 요청을 모은다.
+///
+/// * `Some(요청들)`: 이 프로세스가 처리해야 한다 (첫 번째 인스턴스였거나, 넘기지 못했다).
+/// * `None`: 이미 떠 있는 인스턴스에 넘겼다. 이 프로세스는 할 일이 없다.
+pub fn gather(request: Request) -> Option<Vec<Request>> {
     if std::env::var_os(ENV_NO_IPC).is_some() {
-        return jobs::execute(vec![request]);
+        return Some(vec![request]);
     }
     let Some(payload) = encode(&request) else {
-        return jobs::execute(vec![request]);
+        return Some(vec![request]);
     };
 
     let name = pipe_name();
     for _ in 0..3 {
         if let Some(server) = claim(&name) {
-            return serve(server, &name, request);
+            return Some(collect(server, &name, request));
         }
         if send(&name, &payload).is_ok() {
-            return 0; // 넘겼다. 결과는 서버가 알린다.
+            return None; // 넘겼다. 결과는 그쪽이 알린다.
         }
-        // 서버가 막 끝나는 중이었다. 다시 자리를 잡아 본다.
+        // 서버가 막 마감하는 중이었다. 다시 자리를 잡아 본다.
         thread::sleep(Duration::from_millis(50));
     }
-    jobs::execute(vec![request])
+    Some(vec![request])
 }
 
 #[cfg(test)]

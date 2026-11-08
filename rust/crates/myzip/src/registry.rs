@@ -165,11 +165,15 @@ fn delete_tree(path: &str) {
     let _ = regpath::hkcu().delete_subkey_all(regpath::path(path));
 }
 
-#[allow(dead_code)] // 설정 창(3단계 GUI)에서 쓴다
 fn key_exists(path: &str) -> bool {
     regpath::hkcu()
         .open_subkey_with_flags(regpath::path(path), KEY_READ)
         .is_ok()
+}
+
+/// 바꾼 연결을 탐색기에 바로 반영한다.
+pub fn refresh_shell() {
+    notify_shell();
 }
 
 /// 탐색기에 연결 정보가 바뀌었다고 알린다. 재부팅 없이 반영된다.
@@ -292,7 +296,6 @@ pub fn status(ext: &str) -> AssocStatus {
     }
 }
 
-#[allow(dead_code)] // 설정 창(3단계 GUI)에서 쓴다
 pub fn all_status() -> Vec<AssocStatus> {
     FILE_TYPES.iter().map(|t| status(t.0)).collect()
 }
@@ -355,7 +358,6 @@ pub fn uninstall_context_menu() {
     notify_shell();
 }
 
-#[allow(dead_code)] // 설정 창(3단계 GUI)에서 쓴다
 pub fn context_menu_installed() -> bool {
     key_exists(&format!(r"{CLASSES}\*\shell\{APP_NAME}.compress"))
 }

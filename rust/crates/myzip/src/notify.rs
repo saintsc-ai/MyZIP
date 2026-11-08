@@ -65,6 +65,28 @@ fn message_box(_kind: Kind, title: &str, message: &str) {
     console::error(&format!("{title}: {message}"));
 }
 
+/// 연결된 프로그램으로 연다 (파일, 또는 ms-settings: 같은 주소).
+pub fn shell_open(target: &std::ffi::OsStr) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let file: Vec<u16> = target.encode_wide().chain(Some(0)).collect();
+    let verb: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+    // SAFETY: 문자열은 모두 null 로 끝나고 호출이 끝날 때까지 살아 있다.
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // 32 보다 크면 성공이다 (Win32 의 오래된 약속).
+    result as usize > 32
+}
+
 /// 탐색기에서 폴더를 연다. 파일이면 그 파일을 선택한 채로 연다.
 pub fn open_in_explorer(path: &Path) {
     if quiet() {
