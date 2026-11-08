@@ -53,6 +53,43 @@ jobs:
           MYZIP_NO_SHELL: "1"
         run: python tests/test_cli.py
 
+  rust:
+    # Rust 재작성판 (rust/). Python 판과 따로 돌아간다.
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: rust
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: RAR/7Z 엔진 준비
+        # 없으면 7-Zip 테스트는 스스로 건너뛴다.
+        continue-on-error: true
+        working-directory: .
+        run: python tools/fetch_7zip.py
+
+      - name: 서식 검사
+        run: cargo fmt --check
+
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: 테스트
+        run: cargo test
+
   build:
     runs-on: windows-latest
     needs: test

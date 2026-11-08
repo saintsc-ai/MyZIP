@@ -9,6 +9,9 @@
 # 7-Zip 바이너리(약 2.4MB)이고, tools/fetch_7zip.py 로 언제든 다시 받을 수 있다.
 /bin/
 
+# Rust 빌드 산출물
+/rust/target/
+
 # 파이썬
 __pycache__/
 *.py[cod]

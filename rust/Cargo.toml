@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/myzip-core"]
+
+[workspace.package]
+version = "1.0.1"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/saintsc-ai/MyZIP"
+
+[profile.release]
+# 배포용 exe 는 작을수록 좋다. 우클릭 메뉴로 자주 뜨는 프로그램이라
+# 크기와 시작 속도가 체감 품질이다.
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
