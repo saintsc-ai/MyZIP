@@ -1,0 +1,62 @@
+name: release
+
+# 버전 태그를 올리면 설치 파일과 포터블 ZIP 을 만들어 GitHub 릴리스에 올린다.
+#
+#   1. rust/Cargo.toml 의 [workspace.package] version 을 올리고 커밋
+#   2. git tag v2.0.0 && git push origin v2.0.0
+#
+# 태그와 Cargo.toml 버전이 다르면 실패한다.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Inno Setup 준비
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: 테스트
+        working-directory: rust
+        run: cargo test --locked --release
+
+      - name: 설치 파일 + 포터블 + 체크섬
+        # 7-Zip 엔진은 배포판에 꼭 들어가야 하므로 여기서는 실패를 허용하지 않는다.
+        run: |
+          python tools/fetch_7zip.py
+          python build.py --release
+
+      - name: 산출물 보관
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyZIP-release
+          path: release/
+
+      - name: GitHub 릴리스 게시
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/publish_release.py

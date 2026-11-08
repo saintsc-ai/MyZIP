@@ -1,111 +1,98 @@
-"""MyZIP 빌드 스크립트.
+"""MyZIP 빌드 스크립트 (Rust 판).
 
-    python build.py            아이콘 생성 + exe 빌드
-    python build.py --installer  위 + Inno Setup 설치 파일까지
+    python build.py              exe 빌드 + 배포 폴더(dist/MyZIP) 만들기 + 동작 확인
+    python build.py --installer  위 + Inno Setup 설치 파일
+    python build.py --release    처음부터 다시: 설치 파일 + 포터블 ZIP + 체크섬 (release/)
     python build.py --clean      빌드 산출물 정리
 
-PyInstaller 의 onedir 모드를 쓴다. onefile 은 실행할 때마다 임시 폴더로
-전체를 풀기 때문에 시작이 1초 이상 느려지는데, 압축 프로그램은 탐색기에서
-더블클릭했을 때 즉시 떠야 하므로 그 대가가 너무 크다.
+필요한 것: Rust(MSVC 툴체인), 설치 파일을 만들 때는 Inno Setup 6.
+Python 표준 라이브러리만 쓴다.
+
+배포 폴더는 이렇게 생겼다. 아이콘은 exe 안에 들어 있다.
+
+    MyZIP/
+      MyZIP.exe
+      bin/7z.exe, bin/7z.dll     RAR/7Z 해제 엔진 (tools/fetch_7zip.py 가 받아 둔 것)
+      LICENSE.txt, THIRD-PARTY-NOTICES.md
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+RUST = ROOT / "rust"
 DIST = ROOT / "dist"
-BUILD = ROOT / "build"
+APP_DIR = DIST / "MyZIP"
 RELEASE = ROOT / "release"
+INSTALLER_OUT = ROOT / "installer" / "output"
 APP_NAME = "MyZIP"
 
-# 포터블 ZIP 을 만들 때 MyZIP 자신을 import 한다. 어느 폴더에서 실행하든
-# 프로젝트 루트를 찾을 수 있도록 미리 넣어 둔다.
-sys.path.insert(0, str(ROOT))
+
+def version() -> str:
+    with open(RUST / "Cargo.toml", "rb") as f:
+        return tomllib.load(f)["workspace"]["package"]["version"]
 
 
-def run(cmd: list[str], **kwargs) -> int:
-    print(f"$ {' '.join(cmd)}")
-    return subprocess.run(cmd, cwd=str(ROOT), **kwargs).returncode
+def run(cmd: list[str], cwd: Path = ROOT, **kwargs) -> subprocess.CompletedProcess:
+    print(f"$ {' '.join(str(c) for c in cmd)}", flush=True)
+    return subprocess.run([str(c) for c in cmd], cwd=str(cwd), **kwargs)
 
 
-def ensure_tools() -> bool:
-    try:
-        import PyInstaller  # noqa: F401
-    except ImportError:
-        print("PyInstaller 가 없습니다. 설치합니다...")
-        if run([sys.executable, "-m", "pip", "install", "pyinstaller"]) != 0:
-            print("PyInstaller 설치에 실패했습니다.")
-            return False
-    return True
+def cargo() -> str | None:
+    found = shutil.which("cargo")
+    if found:
+        return found
+    candidate = Path.home() / ".cargo" / "bin" / "cargo.exe"
+    return str(candidate) if candidate.exists() else None
 
 
-def make_icons() -> None:
-    print("\n== 아이콘 생성 ==")
-    run([sys.executable, "tools/make_icons.py"])
-    run([sys.executable, "tools/make_action_icons.py"])
-
+# ------------------------------------------------------------------ 단계
 
 def fetch_engine() -> None:
     print("\n== RAR/7Z 엔진 확인 ==")
-    code = run([sys.executable, "tools/fetch_7zip.py"])
-    if code != 0:
+    if run([sys.executable, "tools/fetch_7zip.py"]).returncode != 0:
         print("경고: RAR/7Z 엔진 없이 빌드합니다. ZIP/TAR 은 정상 동작합니다.")
 
 
 def build_exe() -> bool:
     print("\n== 실행 파일 빌드 ==")
-
-    icon = ROOT / "resources" / "icons" / "app.ico"
-    separator = ";" if sys.platform == "win32" else ":"
-
-    args = [
-        sys.executable, "-m", "PyInstaller",
-        "--noconfirm",
-        "--clean",
-        "--windowed",                      # 콘솔 창 없이
-        "--name", APP_NAME,
-        "--icon", str(icon),
-        "--add-data", f"resources{separator}resources",
-        # Qt 에서 실제로 쓰지 않는 무거운 모듈을 걷어낸다.
-        "--exclude-module", "PySide6.QtWebEngineCore",
-        "--exclude-module", "PySide6.QtWebEngineWidgets",
-        "--exclude-module", "PySide6.Qt3DCore",
-        "--exclude-module", "PySide6.QtMultimedia",
-        "--exclude-module", "PySide6.QtQuick",
-        "--exclude-module", "PySide6.QtQml",
-        "--exclude-module", "PySide6.QtCharts",
-        "--exclude-module", "PySide6.QtDataVisualization",
-        "--exclude-module", "tkinter",
-        "--exclude-module", "unittest",
-        "--exclude-module", "pydoc",
-        "myzip_app.py",
-    ]
-
-    bin_dir = ROOT / "bin"
-    if (bin_dir / "7z.exe").exists():
-        args.extend(["--add-binary", f"bin/7z.exe{separator}bin"])
-        args.extend(["--add-binary", f"bin/7z.dll{separator}bin"])
-
-    if run(args) != 0:
+    exe = cargo()
+    if exe is None:
+        print("cargo 를 찾지 못했습니다. https://rustup.rs 에서 Rust 를 설치하세요.")
+        return False
+    if run([exe, "build", "--release", "--locked"], cwd=RUST).returncode != 0:
         return False
 
-    target = DIST / APP_NAME / f"{APP_NAME}.exe"
-    if not target.exists():
-        print(f"실행 파일이 만들어지지 않았습니다: {target}")
+    built = RUST / "target" / "release" / f"{APP_NAME}.exe"
+    if not built.exists():
+        print(f"실행 파일이 만들어지지 않았습니다: {built}")
         return False
 
-    before = folder_size(DIST / APP_NAME)
-    prune()
-    after = folder_size(DIST / APP_NAME)
+    if APP_DIR.exists():
+        shutil.rmtree(APP_DIR)
+    APP_DIR.mkdir(parents=True)
+    shutil.copy2(built, APP_DIR / built.name)
+    shutil.copy2(ROOT / "LICENSE", APP_DIR / "LICENSE.txt")
+    shutil.copy2(ROOT / "THIRD-PARTY-NOTICES.md", APP_DIR / "THIRD-PARTY-NOTICES.md")
 
-    print(f"\n빌드 완료: {target}")
-    print(f"배포 폴더 크기: {after / 1024 / 1024:.1f} MB "
-          f"({(before - after) / 1024 / 1024:.1f} MB 덜어냄)")
+    engine = ROOT / "bin"
+    if (engine / "7z.exe").exists() and (engine / "7z.dll").exists():
+        (APP_DIR / "bin").mkdir()
+        for name in ("7z.exe", "7z.dll"):
+            shutil.copy2(engine / name, APP_DIR / "bin" / name)
+    else:
+        print("경고: bin/7z.exe 가 없어 RAR/7Z 엔진 없이 배포 폴더를 만듭니다.")
+
+    print(f"\n배포 폴더: {APP_DIR}  ({folder_size(APP_DIR) / 1024 / 1024:.1f} MB)")
     return True
 
 
@@ -113,91 +100,94 @@ def folder_size(path: Path) -> int:
     return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
 
 
-# PySide6 가 무조건 끌고 오지만 위젯 전용 앱에는 쓰이지 않는 것들.
-# --exclude-module 로는 DLL 이 걸러지지 않아 빌드 후에 직접 지운다.
-PRUNE_FILES = (
-    # 소프트웨어 OpenGL 폴백 (20MB). 위젯은 래스터 엔진으로 그린다.
-    "PySide6/opengl32sw.dll",
-    # QML / Quick 계열 — 우리는 위젯만 쓴다
-    "PySide6/Qt6Qml.dll",
-    "PySide6/Qt6QmlModels.dll",
-    "PySide6/Qt6QmlMeta.dll",
-    "PySide6/Qt6QmlWorkerScript.dll",
-    "PySide6/Qt6Quick.dll",
-    "PySide6/Qt6QuickControls2.dll",
-    "PySide6/Qt6QuickTemplates2.dll",
-    "PySide6/Qt6QuickWidgets.dll",
-    # PDF 렌더러
-    "PySide6/Qt6Pdf.dll",
-    "PySide6/Qt6PdfWidgets.dll",
-    # Direct3D 셰이더 컴파일러 (QML 전용)
-    "PySide6/d3dcompiler_47.dll",
-    "PySide6/Qt6ShaderTools.dll",
-    # 가상 키보드, 원격 데스크톱 등
-    "PySide6/Qt6VirtualKeyboard.dll",
-)
-
-PRUNE_DIRS = (
-    "PySide6/qml",
-    "PySide6/plugins/qmltooling",
-    "PySide6/plugins/virtualkeyboard",
-    "PySide6/plugins/sqldrivers",
-    "PySide6/plugins/multimedia",
-    "PySide6/plugins/canbus",
-    "PySide6/plugins/position",
-    "PySide6/plugins/renderers",
-    "PySide6/plugins/sceneparsers",
-    "PySide6/plugins/geometryloaders",
-)
+def quiet_env() -> dict[str, str]:
+    """만든 exe 를 시험할 때 쓰는 환경. 탐색기 창, 메시지 상자, 사용자 설정을 건드리지 않는다."""
+    return dict(
+        os.environ,
+        MYZIP_NO_SHELL="1",
+        MYZIP_NO_IPC="1",
+        MYZIP_REG_ROOT=r"Software\MyZIP-Build",
+    )
 
 
-def prune() -> None:
-    """배포 폴더에서 쓰지 않는 Qt 구성요소를 덜어낸다."""
-    root = DIST / APP_NAME / "_internal"
-    if not root.exists():
-        root = DIST / APP_NAME
+def myzip(*args: str | Path) -> subprocess.CompletedProcess:
+    # 출력을 받아 두면(파이프) MyZIP 은 창 없이 동작한다.
+    return run([APP_DIR / f"{APP_NAME}.exe", *args], env=quiet_env(),
+               capture_output=True, text=True, encoding="utf-8", errors="replace",
+               timeout=300)
 
-    removed = 0
-    for relative in PRUNE_FILES:
-        path = root / relative
-        if path.exists():
-            removed += path.stat().st_size
-            path.unlink()
 
-    for relative in PRUNE_DIRS:
-        path = root / relative
-        if path.is_dir():
-            removed += folder_size(path)
-            shutil.rmtree(path)
+def smoke_test() -> bool:
+    """배포 폴더의 exe 가 실제로 압축하고 풀리는지 확인한다."""
+    print("\n== 배포본 동작 확인 ==")
+    expected = f"{APP_NAME} {version()}"
+    out = myzip("--version")
+    if out.returncode != 0 or expected not in out.stdout:
+        print(f"버전이 다릅니다: {out.stdout.strip()!r} (기대: {expected!r})")
+        return False
 
-    if removed:
-        print(f"불필요한 Qt 구성요소 {removed / 1024 / 1024:.1f} MB 제거")
+    with tempfile.TemporaryDirectory(prefix="myzip-build-") as tmp:
+        work = Path(tmp)
+        src = work / "자료"
+        (src / "하위").mkdir(parents=True)
+        (src / "한글.txt").write_text("안녕하세요\n" * 200, encoding="utf-8")
+        (src / "하위" / "data.bin").write_bytes(os.urandom(4096))
+
+        out = work / "풀기"
+        out.mkdir()
+        steps = [
+            ("ZIP 압축", ["--compress-zip", src]),
+            ("무결성 검사", ["--test", work / "자료.zip"]),
+        ]
+        for label, args in steps:
+            result = myzip(*args)
+            if result.returncode != 0:
+                print(f"[실패] {label}\n{result.stdout}{result.stderr}")
+                return False
+            print(f"[통과] {label}")
+
+        shutil.copy2(work / "자료.zip", out / "자료.zip")
+        result = myzip("--extract-to", out / "자료.zip")
+        restored = out / "자료"
+        if result.returncode != 0 or not restored.is_dir():
+            print(f"[실패] 폴더 만들어 풀기\n{result.stdout}{result.stderr}")
+            return False
+        same = all(
+            (restored / rel).read_bytes() == (src / rel).read_bytes()
+            for rel in ("한글.txt", "하위/data.bin")
+        )
+        if not same:
+            print("[실패] 푼 내용이 원본과 다릅니다.")
+            return False
+        print("[통과] 폴더 만들어 풀기, 내용 일치")
+
+        if (APP_DIR / "bin" / "7z.exe").exists():
+            # 7-Zip 엔진이 번들 위치(bin/)에서 잡히는지: 7z 로 만든 아카이브를 풀어 본다.
+            seven = work / "seven.7z"
+            made = run([APP_DIR / "bin" / "7z.exe", "a", "-bd", seven, src / "한글.txt"],
+                       capture_output=True)
+            if made.returncode == 0:
+                result = myzip("--test", seven)
+                if result.returncode != 0:
+                    print(f"[실패] 7Z 검사 (bin/7z.exe)\n{result.stdout}{result.stderr}")
+                    return False
+                print("[통과] 7Z 검사 (bin/7z.exe)")
+    return True
 
 
 def find_inno() -> Path | None:
-    """ISCC.exe(Inno Setup 컴파일러)를 찾는다.
-
-    winget 으로 설치하면 관리자 권한 없이 사용자 폴더에 들어가므로
-    Program Files 만 봐서는 못 찾는다.
-    """
-    import os
-
+    """ISCC.exe(Inno Setup 컴파일러)를 찾는다. winget 설치본은 사용자 폴더에 있다."""
     roots = [
         os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
         os.environ.get("ProgramFiles", r"C:\Program Files"),
         str(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs"),
     ]
     for root in roots:
-        if not root:
-            continue
-        for version in ("Inno Setup 6", "Inno Setup 7", "Inno Setup 5"):
-            path = Path(root) / version / "ISCC.exe"
+        for name in ("Inno Setup 6", "Inno Setup 7"):
+            path = Path(root) / name / "ISCC.exe"
             if path.exists():
                 return path
-
-    from shutil import which
-
-    found = which("ISCC.exe")
+    found = shutil.which("ISCC.exe")
     return Path(found) if found else None
 
 
@@ -205,19 +195,18 @@ def build_installer() -> bool:
     print("\n== 설치 파일 빌드 ==")
     iscc = find_inno()
     if iscc is None:
-        print("Inno Setup 6 을 찾지 못했습니다.")
-        print("  https://jrsoftware.org/isdl.php 에서 설치한 뒤 다시 실행하세요.")
-        print("  (설치 파일 없이도 dist/MyZIP 폴더를 그대로 배포할 수 있습니다.)")
+        print("Inno Setup 6 을 찾지 못했습니다. https://jrsoftware.org/isdl.php")
+        print("(설치 파일 없이 dist/MyZIP 폴더를 그대로 배포할 수도 있습니다.)")
         return False
-
     script = ROOT / "installer" / "myzip.iss"
-    if run([str(iscc), str(script)]) != 0:
+    if run([iscc, f"/DAppVersion={version()}", script]).returncode != 0:
         return False
-
-    outputs = sorted((ROOT / "installer" / "output").glob("*.exe"))
-    for path in outputs:
-        print(f"설치 파일: {path}  ({path.stat().st_size / 1024 / 1024:.1f} MB)")
-    return bool(outputs)
+    setup = INSTALLER_OUT / f"{APP_NAME}-{version()}-setup.exe"
+    if not setup.exists():
+        print(f"설치 파일이 없습니다: {setup}")
+        return False
+    print(f"설치 파일: {setup}  ({setup.stat().st_size / 1024 / 1024:.1f} MB)")
+    return True
 
 
 PORTABLE_NOTE = """MyZIP {version} — 포터블 버전
@@ -246,67 +235,49 @@ RAR 은 RARLAB 독점 형식이라 해제만 가능합니다.
 
 
 def make_portable() -> Path | None:
-    """배포 폴더를 포터블 ZIP 으로 묶는다.
-
-    묶는 데 MyZIP 자신의 코드를 쓴다. 릴리스마다 압축 경로를 실제
-    데이터로 한 번 더 검증하는 셈이다.
-    """
+    """배포 폴더를 포터블 ZIP 으로 묶는다. 묶는 일도 방금 만든 MyZIP.exe 가 한다."""
     print("\n== 포터블 ZIP 만들기 ==")
-    source = DIST / APP_NAME
-    if not source.is_dir():
-        print(f"배포 폴더가 없습니다: {source}")
+    note = APP_DIR / "사용법.txt"
+    note.write_text(PORTABLE_NOTE.format(version=version()), encoding="utf-8")
+    made = DIST / f"{APP_NAME}.zip"
+    made.unlink(missing_ok=True)
+    try:
+        result = myzip("--compress-zip", APP_DIR)
+    finally:
+        note.unlink(missing_ok=True)
+    if result.returncode != 0 or not made.exists():
+        print(f"포터블 ZIP 을 만들지 못했습니다.\n{result.stdout}{result.stderr}")
+        return None
+    if myzip("--test", made).returncode != 0:
+        print("포터블 ZIP 검사에 실패했습니다.")
         return None
 
-    sys.path.insert(0, str(ROOT))
-    from myzip import __version__
-    from myzip.core import Progress, walk_inputs, writer_for
-
     RELEASE.mkdir(parents=True, exist_ok=True)
-
-    # 사용법 안내를 폴더에 넣어 함께 묶는다
-    note = source / "사용법.txt"
-    note.write_text(PORTABLE_NOTE.format(version=__version__), encoding="utf-8")
-
-    target = RELEASE / f"{APP_NAME}-{__version__}-portable.zip"
+    target = RELEASE / f"{APP_NAME}-{version()}-portable.zip"
     target.unlink(missing_ok=True)
-
-    items = list(walk_inputs([source]))
-    with writer_for(target, level=9) as writer:
-        writer.write(items, Progress())
-
-    note.unlink(missing_ok=True)
+    shutil.move(made, target)
     print(f"포터블: {target}  ({target.stat().st_size / 1024 / 1024:.1f} MB)")
     return target
 
 
 def collect_release() -> list[Path]:
     """산출물을 release/ 로 모으고 체크섬을 적는다."""
-    import hashlib
-
-    from myzip import __version__
-
     RELEASE.mkdir(parents=True, exist_ok=True)
-
     artifacts: list[Path] = []
 
-    setup = ROOT / "installer" / "output" / f"{APP_NAME}-{__version__}-setup.exe"
+    setup = INSTALLER_OUT / f"{APP_NAME}-{version()}-setup.exe"
     if setup.exists():
-        destination = RELEASE / setup.name
-        if setup.resolve() != destination.resolve():
-            shutil.copy2(setup, destination)
-        artifacts.append(destination)
-
-    portable = RELEASE / f"{APP_NAME}-{__version__}-portable.zip"
+        shutil.copy2(setup, RELEASE / setup.name)
+        artifacts.append(RELEASE / setup.name)
+    portable = RELEASE / f"{APP_NAME}-{version()}-portable.zip"
     if portable.exists():
         artifacts.append(portable)
-
     if not artifacts:
         return []
 
-    lines = [f"{APP_NAME} {__version__} SHA-256", ""]
+    lines = [f"{APP_NAME} {version()} SHA-256", ""]
     for path in artifacts:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        lines.append(f"{digest}  {path.name}")
+        lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
     checksums = RELEASE / "SHA256SUMS.txt"
     checksums.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -318,56 +289,40 @@ def collect_release() -> list[Path]:
 
 
 def clean() -> None:
-    for path in (DIST, BUILD, RELEASE, ROOT / "installer" / "output"):
+    for path in (DIST, RELEASE, INSTALLER_OUT, ROOT / "build"):
         if path.exists():
             shutil.rmtree(path)
             print(f"삭제: {path}")
-    for spec in ROOT.glob("*.spec"):
-        spec.unlink()
-        print(f"삭제: {spec}")
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description=f"{APP_NAME} 빌드")
-    parser.add_argument("--installer", action="store_true",
-                        help="Inno Setup 설치 파일까지 만들기")
+    parser.add_argument("--installer", action="store_true", help="Inno Setup 설치 파일까지")
     parser.add_argument("--release", action="store_true",
-                        help="처음부터 다시 빌드해 설치본 + 포터블 ZIP + 체크섬 생성")
+                        help="처음부터 다시 빌드해 설치 파일 + 포터블 ZIP + 체크섬")
     parser.add_argument("--clean", action="store_true", help="산출물 정리")
-    parser.add_argument("--skip-icons", action="store_true",
-                        help="아이콘 재생성 건너뛰기")
-    parser.add_argument("--skip-engine", action="store_true",
-                        help="RAR 엔진 확인 건너뛰기")
+    parser.add_argument("--skip-engine", action="store_true", help="7-Zip 엔진 확인 건너뛰기")
     args = parser.parse_args()
 
     if args.clean:
         clean()
         return 0
-
-    if not ensure_tools():
-        return 1
-
     if args.release:
-        # 배포본은 남은 찌꺼기 없이 처음부터 만든다.
         clean()
 
-    if not args.skip_icons:
-        make_icons()
+    print(f"{APP_NAME} {version()}")
     if not args.skip_engine:
         fetch_engine()
-
-    if not build_exe():
+    if not build_exe() or not smoke_test():
         return 1
-
     if (args.installer or args.release) and not build_installer():
         return 1
-
     if args.release:
-        make_portable()
-        if not collect_release():
-            print("배포 산출물을 모으지 못했습니다.")
+        if make_portable() is None or not collect_release():
             return 1
-
     return 0
 
 

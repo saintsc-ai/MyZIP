@@ -1,6 +1,7 @@
 """GitHub 릴리스 생성 및 배포 파일 업로드.
 
-토큰은 Git 자격증명 관리자에서 꺼내 쓴다. 별도로 저장하지 않는다.
+CI(.github/workflows/release.yml)에서는 환경 변수 GITHUB_TOKEN 을 쓰고,
+내 PC 에서는 Git 자격증명 관리자에서 토큰을 꺼내 쓴다. 별도로 저장하지 않는다.
 
     python tools/publish_release.py             릴리스 생성 + 자산 업로드
     python tools/publish_release.py --dry-run   무엇을 할지만 출력
@@ -11,22 +12,29 @@ from __future__ import annotations
 import argparse
 import json
 import mimetypes
+import os
 import subprocess
-import sys
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
-REPO = "saintsc-ai/MyZIP"
+REPO = os.environ.get("GITHUB_REPOSITORY", "saintsc-ai/MyZIP")
 API = "https://api.github.com"
 UPLOADS = "https://uploads.github.com"
 
 
+def cargo_version() -> str:
+    with open(ROOT / "rust" / "Cargo.toml", "rb") as f:
+        return tomllib.load(f)["workspace"]["package"]["version"]
+
+
 def get_token() -> str:
-    """Git 자격증명 관리자에서 github.com 토큰을 꺼낸다."""
+    """GITHUB_TOKEN 이 있으면 그것을, 없으면 Git 자격증명 관리자의 github.com 토큰을 쓴다."""
+    if os.environ.get("GITHUB_TOKEN"):
+        return os.environ["GITHUB_TOKEN"]
     proc = subprocess.run(
         ["git", "credential", "fill"],
         input="protocol=https\nhost=github.com\n\n",
@@ -153,10 +161,12 @@ def main() -> int:
     parser.add_argument("--version", default=None)
     args = parser.parse_args()
 
-    from myzip import __version__
-
-    version = args.version or __version__
+    version = args.version or cargo_version()
     tag = f"v{version}"
+    # CI 에서 태그로 실행됐다면, 태그와 Cargo.toml 버전이 같아야 한다.
+    ref = os.environ.get("GITHUB_REF_NAME")
+    if os.environ.get("GITHUB_REF_TYPE") == "tag" and ref != tag:
+        raise SystemExit(f"태그 {ref} 와 rust/Cargo.toml 버전 {version} 이 다릅니다.")
 
     release_dir = ROOT / "release"
     artifacts = [
@@ -196,7 +206,8 @@ def main() -> int:
 
     release = request("POST", f"{API}/repos/{REPO}/releases", token, {
         "tag_name": tag,
-        "target_commitish": "main",
+        # 태그가 이미 있으면 GitHub 는 이 값을 무시하고 태그가 가리키는 커밋을 쓴다.
+        "target_commitish": os.environ.get("GITHUB_SHA", "main"),
         "name": f"MyZIP {version}",
         "body": notes,
         "draft": False,

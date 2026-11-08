@@ -110,27 +110,22 @@ fn command(args: &str) -> String {
     format!("\"{}\" {args}", executable().display())
 }
 
-/// 아이콘 파일이 있는 폴더. 배포본은 exe 옆에, 개발 중에는 저장소의 resources/ 에 있다.
-fn icons_dir() -> Option<PathBuf> {
-    let exe = executable();
-    let dir = exe.parent()?;
-    dir.ancestors()
-        .take(6)
-        .flat_map(|d| {
-            [
-                d.join("resources").join("icons"),
-                d.join("_internal").join("resources").join("icons"),
-            ]
-        })
-        .find(|d| d.join("app.ico").is_file())
-}
+include!(concat!(env!("OUT_DIR"), "/icon_ids.rs"));
 
+/// 아이콘은 exe 안에 리소스로 들어 있다 (build.rs). `"경로",-ID` 의 음수는 리소스 ID 라는 뜻이다.
 fn icon(name: &str) -> String {
-    match icons_dir() {
-        Some(dir) => format!("{},0", dir.join(format!("{name}.ico")).display()),
-        // 아이콘 파일이 없으면 exe 에 박힌 첫 번째 아이콘을 쓴다.
-        None => format!("{},0", executable().display()),
-    }
+    let id = ICON_IDS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map_or(1, |&(_, id)| id);
+    // 따옴표 없이 쓴다 (7-Zip 과 같은 꼴). 공백이 있는 경로도 탐색기가 읽는다.
+    // ",-1" 은 일부 API 가 "아이콘 개수" 로 읽으므로, 첫 아이콘(app)은 순번 0 으로 적는다.
+    let index = if id == 1 {
+        "0".to_owned()
+    } else {
+        format!("-{id}")
+    };
+    format!("{},{index}", executable().display())
 }
 
 // ---------------------------------------------------------------- 저수준 유틸
@@ -409,4 +404,25 @@ pub fn uninstall_all() -> io::Result<()> {
     delete_tree(ROOT_KEY);
     notify_shell();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 레지스트리에 적는 아이콘 이름이 모두 exe 리소스(build.rs 의 표)에 있어야 한다.
+    /// 없으면 조용히 앱 아이콘으로 바뀌어 버린다.
+    #[test]
+    fn every_icon_name_is_embedded() {
+        let used = FILE_TYPES
+            .iter()
+            .map(|t| t.3)
+            .chain(COMPRESS_ITEMS.iter().map(|t| t.3))
+            .chain(["app", "zip"]);
+        for name in used {
+            assert!(ICON_IDS.iter().any(|(n, _)| *n == name), "{name}");
+        }
+        assert!(icon("app").ends_with(",0"));
+        assert!(icon("tgz").ends_with(",-4"));
+    }
 }

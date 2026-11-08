@@ -1,10 +1,11 @@
 # MyZIP — Rust 판
 
-Python(PySide6) 판 MyZIP 을 Rust 로 다시 쓰는 작업 공간입니다.
-목표는 동작은 그대로 두고, 실행 파일을 작게(수십 MB → 수 MB) 만들고 시작을 빠르게
-하는 것입니다. 탐색기 우클릭 메뉴로 자주 뜨는 프로그램이라 이 두 가지가 체감 품질을 좌우합니다.
+MyZIP 2.0 부터는 이 Rust 판이 본체입니다. 1.x 는 Python(PySide6) 판이었고,
+그 소스는 git 기록(`v1.0.1` 까지)에 남아 있습니다. 아래 표와 설명에서 "Python 판" 은 그것을 말합니다.
 
-Python 판은 옮기는 동안 그대로 유지합니다. 각 단계는 Python 판의 테스트를 기준으로 삼습니다.
+다시 쓴 목적은 동작은 그대로 두고, 배포판을 작게(설치 파일 24.1MB → 5.3MB) 만들고 시작을 빠르게
+하는 것이었습니다. 탐색기 우클릭 메뉴로 자주 뜨는 프로그램이라 이 두 가지가 체감 품질을 좌우합니다.
+각 단계는 Python 판의 테스트를 옮겨 기준으로 삼았습니다.
 
 ## 단계
 
@@ -13,7 +14,7 @@ Python 판은 옮기는 동안 그대로 유지합니다. 각 단계는 Python �
 | 1 | **코어 라이브러리** `crates/myzip-core`: ZIP/TAR 읽기·쓰기, 7-Zip 을 통한 RAR/7Z 해제, 인코딩 판별, 경로 탈출 차단 | ✅ 완료 |
 | 2 | **명령줄 + 셸 통합** `crates/myzip`: `--extract-here` / `--extract-to` / `--compress-zip` / `--compress-tgz` / `--test` / `--list`, `--register` / `--unregister`(HKCU 레지스트리), 여러 프로세스로 흩어진 선택을 모으는 단일 인스턴스 처리, 설정 읽기 | ✅ 완료 |
 | 3 | **GUI** (egui / eframe): 메인 창(폴더 트리 + 목록), 압축·해제·진행·설정 대화상자, 암호 입력 창, 맑은 고딕 글꼴 로드, 미리보기(임시 폴더로 꺼내 열기) | ✅ 완료 |
-| 4 | **배포**: exe 아이콘·버전 리소스, Inno Setup 스크립트를 Rust 빌드로 교체, CI 릴리스, Python 판 은퇴 | 다음 |
+| 4 | **배포**: exe 아이콘·버전 리소스, Inno Setup 스크립트를 Rust 빌드로 교체, CI 릴리스, Python 판 은퇴 | ✅ 완료 |
 
 ## 빌드와 테스트
 
@@ -75,15 +76,39 @@ RAR/7Z 테스트는 `7z.exe` 가 있어야 돌고, 없으면 스스로 건너뜁
 
 ### 직접 써 보기
 
-Rust 판으로 탐색기 메뉴를 바꿔 끼우려면 (Python 판 등록을 덮어씁니다):
+개발 중인 빌드로 탐색기 메뉴를 바꿔 끼우려면 (설치된 MyZIP 의 등록을 덮어씁니다):
 
 ```powershell
 cargo build --release
 .\target\release\MyZIP.exe --register-menu   # 메뉴만. 확장자 연결은 그대로
-# 되돌리기: Python 판 설치 폴더의 MyZIP.exe --register-menu
+# 되돌리기: 설치 폴더의 MyZIP.exe --register-menu
 ```
 
-릴리스 exe 는 약 7.7MB(GUI 포함)이고, 창이 뜨기까지 약 0.2초가 걸립니다.
+릴리스 exe 는 약 7.5MB(GUI 포함)이고, 창이 뜨기까지 약 0.2초가 걸립니다.
+
+## 배포 (4단계)
+
+`python build.py --release` (저장소 루트)가 `cargo build --release` → 배포 폴더 → 동작 확인 →
+설치 파일 → 포터블 ZIP → 체크섬 순서로 만듭니다.
+
+| | 1.x (Python) | 2.0 (Rust) |
+| --- | --- | --- |
+| 배포 폴더 | `MyZIP.exe` + `_internal/` (Qt, Python 런타임 등 200개 넘는 파일, 약 85MB) | `MyZIP.exe` + `bin/7z.exe`, `bin/7z.dll` + 라이선스 (5개 파일, 9.8MB) |
+| 설치 파일 | 24.1MB | 5.3MB |
+| 포터블 ZIP | 33.0MB | 4.8MB |
+
+- **리소스** (`crates/myzip/build.rs`): 아이콘 7개, 버전 정보(파일 속성의 "자세히" 탭),
+  매니페스트(공용 컨트롤 6, PerMonitorV2 DPI, 긴 경로, asInvoker)를 exe 에 넣습니다.
+  `rc.exe` 는 Windows SDK 에서 `embed-resource` 가 찾아 씁니다.
+- **아이콘**: 레지스트리에는 `MyZIP.exe,-<리소스 ID>` 로 적습니다. 이제 `.ico` 파일을 배포하지 않습니다.
+  ID 표는 build.rs 한 곳에서 정하고, 빌드 때 `icon_ids.rs` 를 만들어 `registry.rs` 가 읽습니다.
+- **버전**은 `rust/Cargo.toml` 의 `[workspace.package] version` 한 곳에서만 정합니다.
+  exe 버전 정보, `--version`, 설치 파일(`/DAppVersion=`), 릴리스 태그 검사가 모두 여기서 읽습니다.
+- **설치 파일**: AppId 와 설치 경로가 1.x 와 같아서 그 위에 덮어 설치됩니다.
+  1.x 의 `_internal/` 폴더는 설치할 때 지웁니다(`[InstallDelete]`).
+  레지스트리 키 구조가 같으므로 설치 중 `--register` 가 1.x 의 등록을 그대로 덮어씁니다.
+- **CI**: `tests.yml` 은 fmt, clippy, 테스트 후 배포 폴더를 만들어 돌려 봅니다.
+  `release.yml` 은 `v*` 태그에서 설치 파일과 포터블을 만들어 GitHub 릴리스에 올립니다.
 
 ## GUI (`crates/myzip/src/gui`)
 

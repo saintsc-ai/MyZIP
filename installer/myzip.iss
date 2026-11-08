@@ -1,14 +1,21 @@
 ; MyZIP 설치 스크립트 (Inno Setup 6)
 ;
 ; 빌드:  python build.py --installer
-;   또는  "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\myzip.iss
+;   또는  "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=2.0.0 installer\myzip.iss
+;   (먼저 python build.py 로 dist\MyZIP 을 만들어 두어야 한다)
+;
+; 배포 폴더는 Rust 로 만든 MyZIP.exe 하나와 7-Zip 엔진(bin\) 뿐이다.
+; 아이콘은 exe 안에 들어 있다.
 ;
 ; 관리자 권한을 요구하지 않는다. MyZIP 이 만드는 레지스트리 항목은 전부
 ; HKEY_CURRENT_USER 아래라 사용자 권한으로 충분하고, UAC 프롬프트 없이
 ; 설치가 끝나는 편이 사용자에게 낫기 때문이다.
 
 #define AppName        "MyZIP"
-#define AppVersion     "1.0.1"
+; 버전은 build.py 가 rust/Cargo.toml 에서 읽어 /DAppVersion= 으로 넘긴다.
+#ifndef AppVersion
+  #define AppVersion   "0.0.0"
+#endif
 #define AppPublisher   "MyZIP"
 #define AppExeName     "MyZIP.exe"
 #define SourceDir      "..\dist\MyZIP"
@@ -20,6 +27,7 @@ AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
 AppPublisher={#AppPublisher}
 VersionInfoVersion={#AppVersion}
+MinVersion=10.0
 
 ; 관리자 권한 없이 사용자 폴더에 설치한다.
 PrivilegesRequired=lowest
@@ -73,10 +81,12 @@ Name: "desktopicon"; Description: "{cm:DesktopTask}"; \
     Flags: unchecked
 
 [Files]
-Source: "{#SourceDir}\{#AppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\*"; DestDir: "{app}"; \
     Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion isreadme
+
+[InstallDelete]
+; 1.x(Python 판) 위에 덮어 설치할 때, 이제 쓰지 않는 PyInstaller 런타임을 치운다.
+Type: filesandordirs; Name: "{app}\_internal"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"

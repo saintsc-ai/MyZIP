@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/myzip", "crates/myzip-core"]
 
 [workspace.package]
-version = "1.0.1"
+version = "2.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/saintsc-ai/MyZIP"

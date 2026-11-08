@@ -8,7 +8,7 @@
 
 [![tests](https://github.com/saintsc-ai/MyZIP/actions/workflows/tests.yml/badge.svg)](https://github.com/saintsc-ai/MyZIP/actions/workflows/tests.yml)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![python](https://img.shields.io/badge/python-3.12-3776AB.svg)](https://www.python.org)
+[![rust](https://img.shields.io/badge/rust-2024-DEA584.svg)](https://www.rust-lang.org)
 
 [다운로드](https://github.com/saintsc-ai/MyZIP/releases) ·
 [사용법](docs/사용법.md)
@@ -46,6 +46,7 @@
 - **경로 탈출 차단** — `../../windows/system32` 같은 악성 경로를 무력화합니다.
 - **관리자 권한 불필요** — 레지스트리는 `HKEY_CURRENT_USER` 에만 씁니다.
   제거하면 확장자 연결이 이전 프로그램으로 되돌아갑니다.
+- **작고 빠름** — 설치 파일 약 5MB, 실행 파일 하나. 우클릭 메뉴로 띄워도 바로 뜹니다.
 - **취소 가능한 진행 표시** — 남은 시간 추정 포함. 취소해도 반쪽짜리 파일이 남지 않습니다.
 
 ## 설치
@@ -78,21 +79,21 @@
 </tr>
 </table>
 
-## 소스에서 실행
+## 소스에서 빌드
+
+MyZIP 은 Rust 로 만듭니다 (1.x 는 Python/PySide6 판이었습니다).
+Rust(MSVC 툴체인)와 Visual Studio Build Tools 의 C++ 도구가 필요합니다.
 
 ```bash
-pip install -r requirements.txt
+python tools/fetch_7zip.py         # RAR/7Z 해제 엔진 → bin/ (선택)
 
-python tools/make_icons.py         # 아이콘 생성
-python tools/make_action_icons.py
-python tools/fetch_7zip.py         # RAR/7Z 해제 엔진 (선택)
-
-python myzip_app.py                # 실행
-python myzip_app.py --register     # 확장자 연결 + 우클릭 메뉴 등록
-python myzip_app.py --unregister   # 해제
+cd rust
+cargo run --release                # 실행
+cargo run --release -- --register  # 확장자 연결 + 우클릭 메뉴 등록
+cargo test                         # 테스트
 ```
 
-## 빌드
+## 배포판 만들기
 
 ```bash
 python build.py --release
@@ -104,54 +105,39 @@ python build.py --release
 
 | 명령 | 결과 |
 | --- | --- |
-| `python build.py` | `dist/MyZIP/` 폴더 |
+| `python build.py` | `dist/MyZIP/` 폴더 (MyZIP.exe + 7-Zip 엔진) + 동작 확인 |
 | `python build.py --installer` | 위 + 설치 마법사 |
 | `python build.py --release` | 처음부터 다시 빌드 + 포터블 + 체크섬 |
 | `python build.py --clean` | 산출물 정리 |
 
-포터블 ZIP 은 MyZIP 자신의 압축 코드로 묶습니다.
-릴리스할 때마다 83 MB / 229개 파일이라는 실제 데이터로
-압축 경로가 한 번 더 검증되는 셈입니다.
+빌드 스크립트는 만든 exe 로 압축 → 검사 → 풀기를 한 번 돌려 보고, 포터블 ZIP 도
+그 exe 로 묶습니다. 빌드 스크립트는 Python 표준 라이브러리만 씁니다.
 
-## 테스트
-
-```bash
-python tests/test_core.py       # 왕복, CP949, 경로 탈출, 암호, 취소, 단일 gz
-python tests/test_rar.py        # RAR / 7Z 해제, 헤더 암호화
-python tests/test_cli.py        # 컨텍스트 메뉴가 부르는 명령들
-python tests/test_built_exe.py  # 빌드된 exe (build.py 먼저 실행)
-```
-
-작업 폴더는 시스템 임시 폴더를 쓰며 `MYZIP_TEST_DIR` 로 바꿀 수 있습니다.
-
-RAR 은 압축기를 만들 수 없으니 테스트 파일도 만들 수 없습니다.
-그래서 문서화된 헤더 구조로 무압축 RAR4 컨테이너를 직접 조립해
-([tests/rar_fixture.py](tests/rar_fixture.py)) 실제 해제를 검증합니다.
+`v2.0.0` 같은 태그를 올리면 GitHub Actions(`release.yml`)가 같은 과정을 거쳐
+릴리스를 게시합니다. 태그는 `rust/Cargo.toml` 의 버전과 같아야 합니다.
 
 ## 구조
 
 ```text
-myzip/
-  core/             포맷 처리 — UI 의존성 없음
-    base.py           ArchiveReader/Writer 인터페이스, 진행률, 취소
-    zip_handler.py    ZIP (pyzipper, AES-256)
-    tar_handler.py    TAR / GZ / BZ2 / XZ, 단일 압축 파일
-    rar_handler.py    RAR · 7Z (7z.exe 엔진)
-    sevenzip.py       7z.exe 래퍼
-    encoding.py       파일명 인코딩 자동 판별
-    path_safety.py    경로 탈출 차단
-    formats.py        매직 바이트 판별, 핸들러 선택
-  ui/               PySide6 화면
-  shell/            레지스트리 — 확장자 연결, 컨텍스트 메뉴
-  app.py            부트스트랩, 단일 인스턴스, 동작 라우팅
-  cli.py            명령줄 파싱
-tools/              아이콘 생성, 7-Zip 준비, 스크린샷
-tests/              자동 검증
-installer/          Inno Setup 스크립트
+rust/
+  crates/myzip-core/  포맷 처리 — 화면 의존성 없음
+                        ZIP(AES-256), TAR/GZ/BZ2/XZ, 7z.exe 로 RAR·7Z,
+                        파일명 인코딩 판별, 경로 탈출 차단
+  crates/myzip/       MyZIP.exe
+    src/cli.rs          명령줄
+    src/instance.rs     단일 인스턴스 (여러 파일 선택을 하나로 모음)
+    src/jobs.rs         압축·해제·검사 작업
+    src/registry.rs     확장자 연결, 컨텍스트 메뉴 (HKCU)
+    src/gui/            egui 화면
+    build.rs            아이콘·버전 정보·매니페스트를 exe 에 넣음
+resources/icons/      아이콘 원본 (tools/make_icons.py 로 다시 그림, PySide6 필요)
+installer/            Inno Setup 스크립트
+tools/                7-Zip 받기, 릴리스 게시
 ```
 
+자세한 내용은 [rust/README.md](rust/README.md) 를 보세요.
 ## 라이선스
 
 소스 코드는 [MIT](LICENSE).
-배포판에 함께 들어가는 PySide6(LGPL v3), 7-Zip(LGPL + unRAR 제한)에 대해서는
+배포판에 함께 들어가는 Rust 라이브러리와 7-Zip(LGPL + unRAR 제한)에 대해서는
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) 를 참고하세요.
